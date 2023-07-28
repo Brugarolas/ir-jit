@@ -39,7 +39,7 @@ local wline, werror, wfatal, wwarn
 -- CHECK: Keep this in sync with the C code!
 local action_names = {
   -- int arg, 1 buffer pos:
-  "DISP",  "IMM_S", "IMM_B", "IMM_W", "IMM_D",  "IMM_WB", "IMM_DB",
+  "DISP",  "SCALE", "IMM_S", "IMM_B", "IMM_W", "IMM_D",  "IMM_WB", "IMM_DB",
   -- action arg (1 byte), int arg, 1 buffer pos (reg/num):
   "VREG", "SPACE",
   -- ptrdiff_t arg, 1 buffer pos (address): !x64
@@ -608,6 +608,7 @@ local function wputmrmsib(t, imark, s, vsreg, psz, sk)
       wvreg("modrm.reg", vsreg, psz+1, sk, vxreg)
       wputmodrm(t.xsc, xreg, 5)
       wvreg("sib.index", vxreg, psz+2, sk)
+      if t.scale ~= nil then waction("SCALE", t.scale) end
     else
       -- Pure 32 bit displacement.
       if x64 and tdisp ~= "table" then
@@ -652,6 +653,7 @@ local function wputmrmsib(t, imark, s, vsreg, psz, sk)
     wputmodrm(t.xsc or 0, xreg or 4, reg) -- SIB.
     wvreg("sib.index", vxreg, psz+2, sk, vreg)
     wvreg("sib.base", vreg, psz+2, sk)
+    if t.scale ~= nil then waction("SCALE", t.scale) end
   else
     wputmodrm(m or 2, s, reg) -- ModRM.
     if (imark == "I" and (m == 1 or m == 2)) or
@@ -810,12 +812,18 @@ local function parseoperand(param, isqword)
       end
 
       -- [xreg*xsc] or [xreg*xsc+-disp] or [xreg*xsc+-expr]
-      local xsc, tailsc = match(tailr, "^%*%s*([1248])%s*(.*)$")
+      local xsc, tailsc = match(tailr, "^%*%s*([%w_]+)%s*(.*)$")
       if xsc then
 	if not map_reg_valid_index[reg] then
 	  werror("bad index register `"..map_reg_rev[reg].."'")
 	end
 	t.xsc = map_xsc[xsc]
+	if t.xsc ~= nil then
+	  t.scale = nil
+	else
+	  t.xsc = 0
+	  t.scale = xsc
+	end
 	t.xreg = t.reg
 	t.vxreg = t.vreg
 	t.reg = nil
@@ -849,9 +857,15 @@ local function parseoperand(param, isqword)
       end
 
       -- [reg+xreg*xsc...]
-      local xsc, tailsc = match(tailx, "^%*%s*([1248])%s*(.*)$")
+      local xsc, tailsc = match(tailx, "^%*%s*([%w_]+)%s*(.*)$")
       if xsc then
 	t.xsc = map_xsc[xsc]
+	if t.xsc ~= nil then
+	  t.scale = nil
+	else
+	  t.xsc = 0
+	  t.scale = xsc
+	end
 	tailx = tailsc
       end
 
