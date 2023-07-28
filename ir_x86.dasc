@@ -7003,137 +7003,52 @@ static void ir_emit_lea(ir_ctx *ctx, ir_ref def, ir_type type, ir_reg base_reg, 
 	} else {
 		if (base_reg == IR_REG_NONE) {
 			if (!offset) {
-				switch (scale) {
-					default:
-						IR_ASSERT(0);
-					case 2:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(index_reg)*2]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(index_reg)*2]
-						}
-						break;
-					case 4:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(index_reg)*4]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(index_reg)*4]
-						}
-						break;
-					case 8:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(index_reg)*8]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(index_reg)*8]
-						}
-						break;
+				if (ir_type_size[type] == 4) {
+					|	lea Rd(def_reg), dword [Rd(index_reg)*scale]
+				} else {
+					|	lea Ra(def_reg), aword [Ra(index_reg)*scale]
 				}
 			} else {
-				switch (scale) {
-					default:
-						IR_ASSERT(0);
-					case 2:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(index_reg)*2+offset]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(index_reg)*2+offset]
-						}
-						break;
-					case 4:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(index_reg)*4+offset]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(index_reg)*4+offset]
-						}
-						break;
-					case 8:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(index_reg)*8+offset]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(index_reg)*8+offset]
-						}
-						break;
+				if (ir_type_size[type] == 4) {
+					|	lea Rd(def_reg), dword [Rd(index_reg)*scale+offset]
+				} else {
+					|	lea Ra(def_reg), aword [Ra(index_reg)*scale+offset]
 				}
 			}
 		} else {
 			if (!offset) {
-				switch (scale) {
-					default:
-						IR_ASSERT(0);
-					case 1:
-						if (ir_type_size[type] == sizeof(void*)) {
-							if (def_reg == base_reg) {
-								|	add Ra(def_reg), Ra(index_reg)
-							} else if (def_reg == index_reg) {
-								|	add Ra(def_reg), Ra(base_reg)
-							} else {
-								|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)]
-							}
+				if (scale == 1) {
+					if (ir_type_size[type] == sizeof(void*)) {
+						if (def_reg == base_reg) {
+							|	add Ra(def_reg), Ra(index_reg)
+						} else if (def_reg == index_reg) {
+							|	add Ra(def_reg), Ra(base_reg)
 						} else {
-							IR_ASSERT(sizeof(void*) == 8 && ir_type_size[type] == 4);
-							if (def_reg == base_reg) {
-								|	add Rd(def_reg), Rd(index_reg)
-							} else if (def_reg == index_reg) {
-								|	add Rd(def_reg), Rd(base_reg)
-							} else {
-								|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)]
-							}
+							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)]
 						}
-						break;
-					case 2:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*2]
+					} else {
+						IR_ASSERT(sizeof(void*) == 8 && ir_type_size[type] == 4);
+						if (def_reg == base_reg) {
+							|	add Rd(def_reg), Rd(index_reg)
+						} else if (def_reg == index_reg) {
+							|	add Rd(def_reg), Rd(base_reg)
 						} else {
-							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*2]
+							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)]
 						}
-						break;
-					case 4:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*4]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*4]
-						}
-						break;
-					case 8:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*8]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*8]
-						}
-						break;
+					}
+				} else {
+					IR_ASSERT(scale == 2 || scale == 4 || scale == 8);
+					if (ir_type_size[type] == 4) {
+						|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*scale]
+					} else {
+						|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*scale]
+					}
 				}
 			} else {
-				switch (scale) {
-					default:
-						IR_ASSERT(0);
-					case 1:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)+offset]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)+offset]
-						}
-						break;
-					case 2:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*2+offset]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*2+offset]
-						}
-						break;
-					case 4:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*4+offset]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*4+offset]
-						}
-						break;
-					case 8:
-						if (ir_type_size[type] == 4) {
-							|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*8+offset]
-						} else {
-							|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*8+offset]
-						}
-						break;
+				if (ir_type_size[type] == 4) {
+					|	lea Rd(def_reg), dword [Rd(base_reg)+Rd(index_reg)*scale+offset]
+				} else {
+					|	lea Ra(def_reg), aword [Ra(base_reg)+Ra(index_reg)*scale+offset]
 				}
 			}
 		}
