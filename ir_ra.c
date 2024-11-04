@@ -2629,10 +2629,17 @@ static int32_t ir_allocate_big_spill_slot(ir_ctx *ctx, int32_t size, ir_reg_allo
 		return ir_allocate_small_spill_slot(ctx, size, data);
 	}
 
-	/* Align stack allocated data to 16 byte */
+  /* Align stack allocated data to 16 byte */
 	ctx->flags2 |= IR_16B_FRAME_ALIGNMENT;
+
+	if (ctx->flags2 & IR_16B_FRAME_ALIGNMENT) {
+		/* Stack must be 16 byte aligned */
+		size = IR_ALIGNED_SIZE(size, 16);
+	} else {
+		size = IR_ALIGNED_SIZE(size, 8);
+	}
+
 	ret = IR_ALIGNED_SIZE(ctx->stack_frame_size, 16);
-	size = IR_ALIGNED_SIZE(size, 8);
 	ctx->stack_frame_size = ret + size;
 
 	return ret;
@@ -4081,8 +4088,8 @@ static void assign_regs(ir_ctx *ctx)
 					if (IR_IS_CONST_REF(ops[ival->tmp_op_num])) {
 						/* constant rematerialization */
 						reg |= IR_REG_SPILL_LOAD;
-					} else if (ctx->ir_base[ops[ival->tmp_op_num]].op == IR_ALLOCA
-							|| ctx->ir_base[ops[ival->tmp_op_num]].op == IR_VADDR) {
+					} else if (ctx->ir_base[ops[ival->tmp_op_num]].op == IR_ALLOCA || ctx->ir_base[ops[ival->tmp_op_num]].op == IR_VADDR) {
+
 						/* local address rematerialization */
 						reg |= IR_REG_SPILL_LOAD;
 					}
