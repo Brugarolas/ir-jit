@@ -34,8 +34,18 @@ static double ir_time(void)
 	return (double)((((uint64_t)filetime.dwHighDateTime << 32) | (uint64_t)filetime.dwLowDateTime)/10) /
 		1000000.0;
 }
-
 #endif
+
+static double ir_atexit_start = 0.0;
+
+static void ir_atexit(void)
+{
+	if (ir_atexit_start) {
+		double t = ir_time();
+		fprintf(stderr, "\nexecution time = %0.6f\n", t - ir_atexit_start);
+		ir_atexit_start = 0.0;
+	}
+}
 
 static void help(const char *cmd)
 {
@@ -91,6 +101,7 @@ static void help(const char *cmd)
 		"  --debug-schedule           - debug SCHEDULE optimization pass\n"
 		"  --debug-ra                 - debug register allocator\n"
 		"  --debug-regset <bit-mask>  - restrict available register set\n"
+		"  --debug-bb-schedule        - debug BB PLCEMENT optimization pass\n"
 #endif
 		"  --disable-gdb              - disable JIT code registration in GDB\n"
 		"  --target                   - print JIT target\n"
@@ -514,10 +525,10 @@ static bool ir_loader_external_sym_dcl(ir_loader *loader, const char *name, uint
 		fprintf(l->dump_file, "extern %s %s;\n", (flags & IR_CONST) ? "const" : "var", name);
 	}
 	if (l->c_file) {
-		ir_emit_c_sym_decl(name, flags | IR_EXTERN, 0, l->c_file);
+		ir_emit_c_sym_decl(name, flags | IR_EXTERN, l->c_file);
 	}
 	if (l->llvm_file) {
-		ir_emit_llvm_sym_decl(name, flags | IR_EXTERN, 0, l->llvm_file);
+		ir_emit_llvm_sym_decl(name, flags | IR_EXTERN, l->llvm_file);
 	}
 	if (l->dump_asm || l->dump_size || l->run) {
 		void *addr = ir_loader_resolve_sym_name(loader, name, 0);
@@ -621,7 +632,7 @@ static bool ir_loader_forward_func_dcl(ir_loader *loader, const char *name, uint
 	return 1;
 }
 
-static bool ir_loader_sym_dcl(ir_loader *loader, const char *name, uint32_t flags, size_t size, bool has_data)
+static bool ir_loader_sym_dcl(ir_loader *loader, const char *name, uint32_t flags, size_t size)
 {
 	ir_main_loader *l = (ir_main_loader*) loader;
 
@@ -632,21 +643,31 @@ static bool ir_loader_sym_dcl(ir_loader *loader, const char *name, uint32_t flag
 		if (flags & IR_STATIC) {
 			fprintf(l->dump_file, "static ");
 		}
-		fprintf(l->dump_file, "%s %s [%" PRIuPTR "]%s\n", (flags & IR_CONST) ? "const" : "var", name, size, has_data ? " = {" : ";");
+		fprintf(l->dump_file, "%s %s [%" PRIuPTR "]%s",
+			(flags & IR_CONST) ? "const" : "var", name, size,
+			(flags & IR_INITIALIZED) ? ((flags & IR_CONST_STRING) ? " = " : " = {\n") : ";\n");
 	}
 	if (l->c_file) {
-		ir_emit_c_sym_decl(name, flags, has_data, l->c_file);
+		ir_emit_c_sym_decl(name, flags, l->c_file);
 	}
 	if (l->llvm_file) {
-		ir_emit_llvm_sym_decl(name, flags, has_data, l->llvm_file);
+		ir_emit_llvm_sym_decl(name, flags, l->llvm_file);
 	}
 	if (l->dump_asm || l->dump_size || l->run) {
 		void *data;
 
 		if (flags & IR_CONST) {
 			data = l->code_buffer.pos;
-			// TODO: alignment ???
-			//data = (void*)IR_ALIGNED_SIZE(((size_t)(data)), 16);
+			/* Data Alignment */
+			if (size > 8) {
+				data = (void*)IR_ALIGNED_SIZE(((size_t)(data)), 16);
+			} else if (size == 8) {
+				data = (void*)IR_ALIGNED_SIZE(((size_t)(data)), 8);
+			} else if (size >= 4) {
+				data = (void*)IR_ALIGNED_SIZE(((size_t)(data)), 4);
+			} else if (size >= 2) {
+				data = (void*)IR_ALIGNED_SIZE(((size_t)(data)), 2);
+			}
 			if (size > (size_t)((char*)l->code_buffer.end - (char*)data)) {
 				return 0;
 			}
@@ -661,7 +682,7 @@ static bool ir_loader_sym_dcl(ir_loader *loader, const char *name, uint32_t flag
 			return 0;
 		}
 		memset(data, 0, size);
-		if (has_data) {
+		if (flags & IR_INITIALIZED) {
 			l->data_start = data;
 		}
 		if (l->dump_asm) {
@@ -735,6 +756,29 @@ static bool ir_loader_sym_data(ir_loader *loader, ir_type type, uint32_t count, 
 	return 1;
 }
 
+static bool ir_loader_sym_data_str(ir_loader *loader, const char *str, size_t len)
+{
+	ir_main_loader *l = (ir_main_loader*) loader;
+
+	if ((l->dump & IR_DUMP_SAVE) && (l->dump_file)) {
+		fprintf(l->dump_file, "\"");
+		ir_print_escaped_str(str, len, l->dump_file);
+		fprintf(l->dump_file, "\"");
+	}
+	if (l->c_file) {
+		// TODO:
+	}
+	if (l->llvm_file) {
+		// TODO:
+	}
+	if (l->dump_asm || l->dump_size || l->run) {
+		IR_ASSERT(l->data_start);
+		memcpy((char*)l->data_start + l->data_pos, str, len);
+	}
+	l->data_pos += len;
+	return 1;
+}
+
 static bool ir_loader_sym_data_pad(ir_loader *loader, size_t offset)
 {
 	ir_main_loader *l = (ir_main_loader*) loader;
@@ -796,12 +840,16 @@ static bool ir_loader_sym_data_ref(ir_loader *loader, ir_op op, const char *ref,
 	return 1;
 }
 
-static bool ir_loader_sym_data_end(ir_loader *loader)
+static bool ir_loader_sym_data_end(ir_loader *loader, uint32_t flags)
 {
 	ir_main_loader *l = (ir_main_loader*) loader;
 
 	if ((l->dump & IR_DUMP_SAVE) && (l->dump_file)) {
-		fprintf(l->dump_file, "};\n");
+		if (flags & IR_CONST_STRING) {
+			fprintf(l->dump_file, ";\n");
+		} else {
+			fprintf(l->dump_file, "};\n");
+		}
 	}
 	if (l->c_file) {
 		// TODO:
@@ -1134,6 +1182,8 @@ int main(int argc, char **argv)
 			flags |= IR_DEBUG_SCHEDULE;
 		} else if (strcmp(argv[i], "--debug-ra") == 0) {
 			flags |= IR_DEBUG_RA;
+		} else if (strcmp(argv[i], "--debug-bb-schedule") == 0) {
+			flags |= IR_DEBUG_BB_SCHEDULE;
 #endif
 		} else if (strcmp(argv[i], "--debug-regset") == 0) {
 			if (i + 1 == argc || argv[i + 1][0] == '-') {
@@ -1240,6 +1290,7 @@ int main(int argc, char **argv)
 	loader.loader.forward_func_dcl   = ir_loader_forward_func_dcl;
 	loader.loader.sym_dcl            = ir_loader_sym_dcl;
 	loader.loader.sym_data           = ir_loader_sym_data;
+	loader.loader.sym_data_str       = ir_loader_sym_data_str;
 	loader.loader.sym_data_pad       = ir_loader_sym_data_pad;
 	loader.loader.sym_data_ref       = ir_loader_sym_data_ref;
 	loader.loader.sym_data_end       = ir_loader_sym_data_end;
@@ -1396,7 +1447,7 @@ finish:
 
 	if (!ir_loader_fix_relocs(&loader)) {
 		if (run && loader.main) {
-			fprintf(stderr, "ERROR: Cannot run program with undefined sumbols\n");
+			fprintf(stderr, "ERROR: Cannot run program with undefined symbols\n");
 			ret = 1;
 			goto exit;
 		}
@@ -1420,6 +1471,11 @@ finish:
 		char **jit_argv;
 		int (*func)(int, char**) = loader.main;
 
+		if (dump_time) {
+			ir_atexit_start = start;
+			atexit(ir_atexit);
+		}
+
 		if (run_args && argc > run_args) {
 			jit_argc = argc - run_args + 1;
 		}
@@ -1433,6 +1489,7 @@ finish:
 		if (dump_time) {
 			double t = ir_time();
 			fprintf(stderr, "\nexecution time = %0.6f\n", t - start);
+			ir_atexit_start = 0.0;
 		}
 
 #ifndef _WIN32

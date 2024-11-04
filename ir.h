@@ -22,7 +22,7 @@ extern "C" {
 
 #ifdef _WIN32
 /* TODO Handle ARM, too. */
-# if defined(_M_X64)
+# if defined(_M_X64) || defined(_M_ARM64)
 #  define __SIZEOF_SIZE_T__ 8
 # elif defined(_M_IX86)
 #  define __SIZEOF_SIZE_T__ 4
@@ -513,6 +513,9 @@ void ir_strtab_free(ir_strtab *strtab);
 #define IR_EXTERN              (1<<5)
 #define IR_CONST               (1<<6)
 
+#define IR_INITIALIZED         (1<<7) /* sym data flag: constant or an initialized variable */
+#define IR_CONST_STRING        (1<<8) /* sym data flag: constant string */
+
 #define IR_SKIP_PROLOGUE       (1<<8) /* Don't generate function prologue. */
 #define IR_USE_FRAME_POINTER   (1<<9)
 #define IR_PREALLOCATED_STACK  (1<<10)
@@ -538,6 +541,7 @@ void ir_strtab_free(ir_strtab *strtab);
 # define IR_DEBUG_GCM_SPLIT    (1<<28)
 # define IR_DEBUG_SCHEDULE     (1<<29)
 # define IR_DEBUG_RA           (1<<30)
+# define IR_DEBUG_BB_SCHEDULE  (1U<<31)
 #endif
 
 typedef struct _ir_ctx           ir_ctx;
@@ -825,11 +829,12 @@ struct _ir_loader {
                                uint32_t flags, ir_type ret_type, uint32_t params_count, const uint8_t *param_types);
 	bool (*forward_func_dcl)  (ir_loader *loader, const char *name,
                                uint32_t flags, ir_type ret_type, uint32_t params_count, const uint8_t *param_types);
-	bool (*sym_dcl)           (ir_loader *loader, const char *name, uint32_t flags, size_t size, bool has_data);
+	bool (*sym_dcl)           (ir_loader *loader, const char *name, uint32_t flags, size_t size);
 	bool (*sym_data)          (ir_loader *loader, ir_type type, uint32_t count, const void *data);
+	bool (*sym_data_str)      (ir_loader *loader, const char *str, size_t len);
 	bool (*sym_data_pad)      (ir_loader *loader, size_t offset);
 	bool (*sym_data_ref)      (ir_loader *loader, ir_op op, const char *ref, uintptr_t offset);
-	bool (*sym_data_end)      (ir_loader *loader);
+	bool (*sym_data_end)      (ir_loader *loader, uint32_t flags);
 	bool (*func_init)         (ir_loader *loader, ir_ctx *ctx, const char *name);
 	bool (*func_process)      (ir_loader *loader, ir_ctx *ctx, const char *name);
 	void*(*resolve_sym_name)  (ir_loader *loader, const char *name, bool add_thunk);
@@ -867,12 +872,12 @@ void ir_dump_codegen(const ir_ctx *ctx, FILE *f);
 /* IR to C conversion (implementation in ir_emit_c.c) */
 int ir_emit_c(ir_ctx *ctx, const char *name, FILE *f);
 void ir_emit_c_func_decl(const char *name, uint32_t flags, ir_type ret_type, uint32_t params_count, const uint8_t *param_types, FILE *f);
-void ir_emit_c_sym_decl(const char *name, uint32_t flags, bool has_data, FILE *f);
+void ir_emit_c_sym_decl(const char *name, uint32_t flags, FILE *f);
 
 /* IR to LLVM conversion (implementation in ir_emit_llvm.c) */
 int ir_emit_llvm(ir_ctx *ctx, const char *name, FILE *f);
 void ir_emit_llvm_func_decl(const char *name, uint32_t flags, ir_type ret_type, uint32_t params_count, const uint8_t *param_types, FILE *f);
-void ir_emit_llvm_sym_decl(const char *name, uint32_t flags, bool has_data, FILE *f);
+void ir_emit_llvm_sym_decl(const char *name, uint32_t flags, FILE *f);
 
 /* IR verification API (implementation in ir_check.c) */
 bool ir_check(const ir_ctx *ctx);
